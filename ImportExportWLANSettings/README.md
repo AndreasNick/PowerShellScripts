@@ -1,4 +1,4 @@
-# PowerShell to Import and Export WLAN setgings
+# PowerShell to Import and Export WLAN settings
 Some time ago we had a notebook migration and the customer wanted WLAN data to be automatically transferred to the new environment.
 Unfortunately this data is fixed to the machine. Therefore these scripts will probably not work in the user context. We did this ourselves back then with RES ONE Workspace and today Ivanti Workspace Control.
 
