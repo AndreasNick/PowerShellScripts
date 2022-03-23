@@ -1,0 +1,8 @@
+﻿
+# Andreas Nick 2021## Function Source# Idea from: https://serverfault.com/questions/1018220/how-do-i-install-an-app-from-windows-store-using-powershell# modificated version. Now able to filte and return msix url's#function Download-AppPackage {[CmdletBinding()]param (  [string]$Uri,  [string]$Filter = '.*' #Regex)     process {    #$Uri=$StoreLink        #Idea from: https://serverfault.com/questions/1018220/how-do-i-install-an-app-from-windows-store-using-powershell    $WebResponse = Invoke-WebRequest -UseBasicParsing -Method 'POST' -Uri 'https://store.rg-adguard.net/api/GetFiles' -Body "type=url&url=$Uri&ring=Retail" -ContentType 'application/x-www-form-urlencoded'    $result =$WebResponse.Links.outerHtml | Where-Object {($_ -like '*.appx*') -or ($_ -like '*.msix*')} | Where-Object {$_ -like '*_neutral_*' -or $_ -like "*_"+$env:PROCESSOR_ARCHITECTURE.Replace("AMD","X").Replace("IA","X")+"_*"} | ForEach-Object {       $result = "" | Select-Object -Property filename, downloadurl       if( $_ -match '(?<=rel="noreferrer">).+(?=</a>)' )       {         $result.filename = $matches.Values[0]       }       if( $_ -match '(?<=a href=").+(?=" r)' )       {         $result.downloadurl = $matches.Values[0]       }       $result    }             $result | Where-Object -Property filename -Match $filter   }}
+
+#$StoreLink = 'https://www.microsoft.com/de-de/p/app-installer/9nblggh4nns1'
+#$StorePackageName = 'Microsoft.VCLibs.140.00.UWPDesktop_14.0.30035.0_x64__8wekyb3d8bbwe.appx'
+#$package = Download-AppPackage -Uri $StoreLink  -Filter $StorePackageName
+
+ 
