@@ -1,54 +1,54 @@
 ﻿<#
 .SYNOPSIS
-  TreeSize-aehnlicher Folder-Analyzer mit interaktivem HTML-Report.
+  Folder size analyzer with an interactive HTML report.
 
 .DESCRIPTION
-  Scannt einen Ordner rekursiv und erzeugt einen HTML-Report mit:
-    - klappbarer Baumstruktur
-    - Sortierung pro Spalte (Klick auf Header)
-    - Live-Filter / Suche
-    - Top-N groesste Dateien
-    - Fortschrittsanzeige
-  Geschwister werden nach Groesse absteigend sortiert (wie im echten TreeSize).
+  Recursively scans a folder and generates an HTML report featuring:
+    - collapsible tree structure
+    - per-column sorting (click on header)
+    - live filter / search
+    - top-N largest files
+    - progress output
+  Siblings are sorted by size in descending order.
 
-.PARAMETER Pfad
-  Wurzelpfad fuer die Analyse. Default: C:\
+.PARAMETER Path
+  Root path for the analysis. Default: C:\
 
-.PARAMETER MaxTiefe
-  Maximale Rekursionstiefe fuer den sichtbaren Baum. Default: 4
+.PARAMETER MaxDepth
+  Maximum recursion depth for the visible tree. Default: 4
 
-.PARAMETER MinGroesseMB
-  Minimale Ordnergroesse in MB, damit der Ordner im Report erscheint.
-  Der Wurzelordner wird immer angezeigt. Default: 10
+.PARAMETER MinSizeMB
+  Minimum folder size in MB required for a folder to appear in the report.
+  The root folder is always shown. Default: 10
 
 .PARAMETER TopFiles
-  Anzahl der groessten Einzeldateien, die zusaetzlich gelistet werden. Default: 50
+  Number of largest individual files that are additionally listed. Default: 50
 
-.PARAMETER Ausgabe
-  Pfad zur HTML-Ausgabedatei. Default: %TEMP%\TreeSize_Report.html
+.PARAMETER Output
+  Path to the HTML output file. Default: %TEMP%\FolderSize_Report.html
 
 .PARAMETER NoOpen
-  Wenn gesetzt, wird der Report nicht automatisch geoeffnet.
+  If set, the report is not opened automatically.
 
 .EXAMPLE
-  .\TreeSize.ps1 -Pfad "C:\" -MaxTiefe 4 -MinGroesseMB 100
+  .\get-FolderSize.ps1 -Path "C:\" -MaxDepth 4 -MinSizeMB 100
 
 .EXAMPLE
-  .\TreeSize.ps1 -Pfad "$env:USERPROFILE" -MaxTiefe 6 -MinGroesseMB 10
+  .\get-FolderSize.ps1 -Path "$env:USERPROFILE" -MaxDepth 6 -MinSizeMB 10
 
 .NOTES
-  Fuer eine vollstaendige Analyse von C:\ als Administrator ausfuehren.
+  Run as administrator for a complete analysis of C:\.
 #>
 param(
-    [string]$Pfad         = "C:\",
-    [int]   $MaxTiefe     = 4,
-    [int]   $MinGroesseMB = 10,
-    [int]   $TopFiles     = 50,
-    [string]$Ausgabe      = "$env:TEMP\TreeSize_Report.html",
+    [string]$Path      = "C:\",
+    [int]   $MaxDepth  = 4,
+    [int]   $MinSizeMB = 10,
+    [int]   $TopFiles  = 50,
+    [string]$Output    = "$env:TEMP\FolderSize_Report.html",
     [switch]$NoOpen
 )
 
-# --- Hilfsfunktionen ---------------------------------------------------------
+# --- Helper functions --------------------------------------------------------
 function Format-Size {
     param([int64]$Bytes)
     if     ($Bytes -ge 1TB) { "{0:N2} TB" -f ($Bytes / 1TB) }
@@ -64,30 +64,30 @@ function HtmlEnc {
     $s.Replace('&','&amp;').Replace('<','&lt;').Replace('>','&gt;').Replace('"','&quot;').Replace("'",'&#39;')
 }
 
-# --- globale Sammler ---------------------------------------------------------
+# --- Global collectors -------------------------------------------------------
 $global:AlleOrdner   = New-Object System.Collections.Generic.List[object]
 $global:TopFilesList = New-Object System.Collections.Generic.List[object]
 $global:Counter      = 0
 $global:Id           = 0
 
-# --- Rekursive Analyse -------------------------------------------------------
+# --- Recursive analysis ------------------------------------------------------
 function Get-Tree {
-    param([string]$Pfad, [int]$Ebene, [int]$ParentId)
+    param([string]$Path, [int]$Ebene, [int]$ParentId)
 
     $eigeneId = ++$global:Id
     $global:Counter++
     if ($global:Counter % 50 -eq 0) {
-        Write-Host "  ... $($global:Counter) Ordner gescannt" -ForegroundColor DarkGray
+        Write-Host "  ... $($global:Counter) folders scanned" -ForegroundColor DarkGray
     }
 
-    # Knoten ZUERST anlegen, damit Eltern vor Kindern in der Liste stehen
-    # (sonst klappt der Baum visuell nach oben auf).
+    # Create the node FIRST so parents appear before their children in the list
+    # (otherwise the tree visually expands upward).
     $node = [PSCustomObject]@{
         Id          = $eigeneId
         ParentId    = $ParentId
         Ebene       = $Ebene
-        Pfad        = $Pfad
-        Name        = if ($Ebene -eq 0) { $Pfad } else { Split-Path $Pfad -Leaf }
+        Pfad        = $Path
+        Name        = if ($Ebene -eq 0) { $Path } else { Split-Path $Path -Leaf }
         Bytes       = [int64]0
         EigeneBytes = [int64]0
         Dateien     = 0
@@ -101,7 +101,7 @@ function Get-Tree {
     $unterordner = @()
 
     try {
-        Get-ChildItem -LiteralPath $Pfad -File -Force -ErrorAction Stop | ForEach-Object {
+        Get-ChildItem -LiteralPath $Path -File -Force -ErrorAction Stop | ForEach-Object {
             $eigenBytes += $_.Length
             $dateiAnzahl++
             if ($TopFiles -gt 0) {
@@ -112,15 +112,15 @@ function Get-Tree {
                 })
             }
         }
-        $unterordner = @(Get-ChildItem -LiteralPath $Pfad -Directory -Force -ErrorAction Stop)
+        $unterordner = @(Get-ChildItem -LiteralPath $Path -Directory -Force -ErrorAction Stop)
     } catch {
-        # Zugriff verweigert o.ae. -> ueberspringen
+        # Access denied or similar -> skip
     }
 
     $node.EigeneBytes = $eigenBytes
     $node.Unterordner = $unterordner.Count
 
-    # Geschwister vorab nach Groesse sortieren -> grosse Ordner stehen oben
+    # Pre-sort siblings by size -> large folders appear at the top
     $unterMitGroesse = foreach ($u in $unterordner) {
         $s = (Get-ChildItem -LiteralPath $u.FullName -Recurse -File -Force -ErrorAction SilentlyContinue |
               Measure-Object Length -Sum).Sum
@@ -137,13 +137,13 @@ function Get-Tree {
 
     foreach ($eintrag in $unterMitGroesse) {
         $u = $eintrag.Item
-        if ($Ebene -lt $MaxTiefe) {
-            $erg = Get-Tree -Pfad $u.FullName -Ebene ($Ebene + 1) -ParentId $eigeneId
+        if ($Ebene -lt $MaxDepth) {
+            $erg = Get-Tree -Path $u.FullName -Ebene ($Ebene + 1) -ParentId $eigeneId
             $kinderBytes   += $erg.Bytes
             $kinderDateien += $erg.Dateien
             $kindIds       += $erg.Id
         } else {
-            # Tiefe erreicht: Groesse aus Vorab-Scan uebernehmen
+            # Depth limit reached: use size from the pre-scan
             $kinderBytes += $eintrag.Size
         }
     }
@@ -155,27 +155,27 @@ function Get-Tree {
     return [PSCustomObject]@{ Bytes = $node.Bytes; Dateien = $node.Dateien; Id = $eigeneId }
 }
 
-# --- Ausfuehrung -------------------------------------------------------------
-if (-not (Test-Path -LiteralPath $Pfad)) {
-    Write-Host "Pfad nicht gefunden: $Pfad" -ForegroundColor Red
+# --- Execution ---------------------------------------------------------------
+if (-not (Test-Path -LiteralPath $Path)) {
+    Write-Host "Path not found: $Path" -ForegroundColor Red
     exit 1
 }
 
-Write-Host "Analysiere $Pfad (max. Tiefe $MaxTiefe) ..." -ForegroundColor Cyan
+Write-Host "Analyzing $Path (max. depth $MaxDepth) ..." -ForegroundColor Cyan
 $start = Get-Date
-[void](Get-Tree -Pfad $Pfad -Ebene 0 -ParentId 0)
+[void](Get-Tree -Path $Path -Ebene 0 -ParentId 0)
 $dauer = (Get-Date) - $start
-Write-Host ("Fertig: {0} Ordner in {1:N1}s" -f $global:Counter, $dauer.TotalSeconds) -ForegroundColor Green
+Write-Host ("Done: {0} folders in {1:N1}s" -f $global:Counter, $dauer.TotalSeconds) -ForegroundColor Green
 
-# --- Filtern -----------------------------------------------------------------
+# --- Filtering ---------------------------------------------------------------
 $rootBytes = ($global:AlleOrdner | Where-Object Ebene -eq 0 | Select-Object -First 1).Bytes
 $gefiltert = $global:AlleOrdner | Where-Object {
-    $_.Ebene -eq 0 -or ($_.Bytes / 1MB) -ge $MinGroesseMB
+    $_.Ebene -eq 0 -or ($_.Bytes / 1MB) -ge $MinSizeMB
 }
 
 $topFilesSorted = $global:TopFilesList | Sort-Object Bytes -Descending | Select-Object -First $TopFiles
 
-# --- HTML-Tabellen aufbauen --------------------------------------------------
+# --- Build HTML tables -------------------------------------------------------
 $rows = New-Object System.Text.StringBuilder
 foreach ($n in $gefiltert) {
     $prozent = if ($rootBytes -gt 0) { [math]::Round($n.Bytes / $rootBytes * 100, 1) } else { 0 }
@@ -215,16 +215,16 @@ foreach ($f in $topFilesSorted) {
 }
 
 $datum   = Get-Date -Format 'dd.MM.yyyy HH:mm'
-$pfadEsc = HtmlEnc $Pfad
+$pfadEsc = HtmlEnc $Path
 $gesamt  = Format-Size $rootBytes
 
-# --- HTML-Datei schreiben ----------------------------------------------------
+# --- Write HTML file ---------------------------------------------------------
 $html = @"
 <!DOCTYPE html>
-<html lang='de'>
+<html lang='en'>
 <head>
 <meta charset='UTF-8'>
-<title>TreeSize Report - $pfadEsc</title>
+<title>Folder Size Report - $pfadEsc</title>
 <style>
   *{box-sizing:border-box}
   body{font-family:'Segoe UI',system-ui,sans-serif;background:#0f1419;color:#e0e6ed;margin:0;padding:0;font-size:13px}
@@ -262,32 +262,32 @@ $html = @"
 </head>
 <body>
 <header>
-  <h1>TreeSize Report</h1>
+  <h1>Folder Size Report</h1>
   <div class='meta'>
-    <span>Pfad: <strong>$pfadEsc</strong></span>
-    <span>Gesamt: <strong>$gesamt</strong></span>
-    <span>Ordner: <strong>$($gefiltert.Count)</strong></span>
-    <span>Min: <strong>${MinGroesseMB} MB</strong></span>
-    <span>Max-Tiefe: <strong>$MaxTiefe</strong></span>
-    <span>Erstellt: <strong>$datum</strong></span>
+    <span>Path: <strong>$pfadEsc</strong></span>
+    <span>Total: <strong>$gesamt</strong></span>
+    <span>Folders: <strong>$($gefiltert.Count)</strong></span>
+    <span>Min: <strong>${MinSizeMB} MB</strong></span>
+    <span>Max depth: <strong>$MaxDepth</strong></span>
+    <span>Created: <strong>$datum</strong></span>
   </div>
 </header>
 <div class='toolbar'>
-  <input type='text' id='search' placeholder='Filter (Ordnername)...'>
-  <button onclick='expandAll()'>Alle ausklappen</button>
-  <button onclick='collapseAll()'>Alle einklappen</button>
+  <input type='text' id='search' placeholder='Filter (folder name)...'>
+  <button onclick='expandAll()'>Expand all</button>
+  <button onclick='collapseAll()'>Collapse all</button>
   <span class='badge' id='visibleCount'></span>
 </div>
 <main>
 <table id='tree'>
   <thead>
     <tr>
-      <th data-sort='name'>Ordner</th>
-      <th class='num' data-sort='bytes'>Groesse</th>
-      <th class='num' data-sort='own'>Eigene</th>
-      <th class='num' data-sort='files'>Dateien</th>
-      <th class='num' data-sort='subs'>Unterord.</th>
-      <th>Anteil</th>
+      <th data-sort='name'>Folder</th>
+      <th class='num' data-sort='bytes'>Size</th>
+      <th class='num' data-sort='own'>Own</th>
+      <th class='num' data-sort='files'>Files</th>
+      <th class='num' data-sort='subs'>Subfolders</th>
+      <th>Share</th>
     </tr>
   </thead>
   <tbody>
@@ -295,9 +295,9 @@ $($rows.ToString())
   </tbody>
 </table>
 
-<h2>Top $TopFiles groesste Dateien</h2>
+<h2>Top $TopFiles largest files</h2>
 <table>
-  <thead><tr><th>Datei</th><th class='num'>Groesse</th><th class='num'>Geaendert</th></tr></thead>
+  <thead><tr><th>File</th><th class='num'>Size</th><th class='num'>Modified</th></tr></thead>
   <tbody>
 $($topRows.ToString())
   </tbody>
@@ -385,14 +385,14 @@ document.querySelectorAll('th[data-sort]').forEach(th => {
 
 function updateCount() {
   const visible = rows.filter(r => !r.classList.contains('hidden')).length;
-  document.getElementById('visibleCount').textContent = visible + ' sichtbar';
+  document.getElementById('visibleCount').textContent = visible + ' visible';
 }
 updateCount();
 </script>
 </body></html>
 "@
 
-$html | Out-File -FilePath $Ausgabe -Encoding UTF8
-Write-Host "Report gespeichert: $Ausgabe" -ForegroundColor Green
+$html | Out-File -FilePath $Output -Encoding UTF8
+Write-Host "Report saved: $Output" -ForegroundColor Green
 
-if (-not $NoOpen) { Start-Process $Ausgabe }
+if (-not $NoOpen) { Start-Process $Output }
